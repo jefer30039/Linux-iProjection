@@ -44,6 +44,31 @@ def _ensure_gst():
         _gst_initialized = True
 
 
+def _x11_capture_available() -> bool:
+    """True if ximagesrc can capture the current X11 display."""
+    _ensure_gst()
+    return bool(
+        os.environ.get("DISPLAY")
+        and Gst.Registry.get().lookup_feature("ximagesrc")
+    )
+
+
+def _should_use_x11_capture() -> bool:
+    """Decide whether to skip the portal and capture via X11 directly.
+
+    Controlled by LINUX_IPROJECTION_CAPTURE = auto | x11 | portal.
+    In "auto" (default), X11 sessions use ximagesrc, because the GNOME
+    ScreenCast portal does not deliver PipeWire frames on X11.
+    """
+    mode = os.environ.get("LINUX_IPROJECTION_CAPTURE", "auto").strip().lower()
+    if mode == "portal":
+        return False
+    if mode == "x11":
+        return _x11_capture_available()
+    session = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    return session == "x11" and _x11_capture_available()
+
+
 # Data types
 
 
@@ -423,7 +448,17 @@ class ScreenCaster:
 
         # Get PipeWire node for real casting
         node_id = None
-        if not is_file:
+        use_x11 = not is_file and _should_use_x11_capture()
+        if use_x11:
+            if virtual:
+                log.error("Extended (virtual) display is not supported on X11")
+                if self.on_error:
+                    self.on_error(
+                        "Extend mode needs a Wayland session; use Mirror mode on X11"
+                    )
+                return False
+            log.info("X11 session detected - capturing with ximagesrc (no portal)")
+        elif not is_file:
             try:
                 node_id = await _request_portal_stream(virtual=virtual)
             except Exception as e:
@@ -672,7 +707,13 @@ class ScreenCaster:
                 # Wayland systems), fall back to pulsesrc (PulseAudio compat)
                 _ensure_gst()
                 registry = Gst.Registry.get()
-                if registry.lookup_feature("pipewiresrc"):
+                if node_id is None and registry.lookup_feature("pulsesrc"):
+                    # X11 capture path: pipewiresrc with an Audio/Sink
+                    # match can stall in PAUSED and block set_state(), so
+                    # use the PulseAudio monitor (served by pipewire-pulse).
+                    audio_src = 'pulsesrc device="@DEFAULT_SINK@.monitor" do-timestamp=true'
+                    log.info("Using pulsesrc monitor for audio capture (X11 path)")
+                elif registry.lookup_feature("pipewiresrc"):
                     # Use target.object to capture desktop/monitor audio
                     # without conflicting with the video pipewiresrc node.
                     audio_src = (
