@@ -451,12 +451,26 @@ class ScreenCaster:
         use_x11 = not is_file and _should_use_x11_capture()
         if use_x11:
             if virtual:
-                log.error("Extended (virtual) display is not supported on X11")
-                if self.on_error:
-                    self.on_error(
-                        "Extend mode needs a Wayland session; use Mirror mode on X11"
-                    )
-                return False
+                from .virtual_display import EvdiVirtualDisplay
+
+                if not EvdiVirtualDisplay.available():
+                    log.error("Extend mode on X11 requires the evdi module and libevdi")
+                    if self.on_error:
+                        self.on_error(
+                            "Extend mode on X11 needs evdi (install evdi-dkms and "
+                            "libevdi1), or use a Wayland session"
+                        )
+                    return False
+                vd = EvdiVirtualDisplay()
+                try:
+                    loop = asyncio.get_running_loop()
+                    self._capture_region = await loop.run_in_executor(None, vd.start)
+                except Exception as e:
+                    log.error("Virtual monitor failed: %s", e)
+                    if self.on_error:
+                        self.on_error(f"Could not create virtual monitor: {e}")
+                    return False
+                self._virtual_display = vd
             log.info("X11 session detected - capturing with ximagesrc (no portal)")
         elif not is_file:
             try:
@@ -481,6 +495,7 @@ class ScreenCaster:
             log.error("Failed to parse pipeline: %s", e)
             if self.on_error:
                 self.on_error(f"Pipeline parse error: {e}")
+            self._release_virtual_display()
             return False
 
         # Bus monitoring
@@ -508,6 +523,7 @@ class ScreenCaster:
                 log.error("Failed to parse fallback pipeline: %s", e)
                 if self.on_error:
                     self.on_error(f"Fallback pipeline parse error: {e}")
+                self._release_virtual_display()
                 return False
 
             bus = self._pipeline.get_bus()
@@ -519,6 +535,7 @@ class ScreenCaster:
                 log.error("Failed to start pipeline even with software fallback")
                 if self.on_error:
                     self.on_error("Failed to start stream (check GStreamer hardware & software plugins)")
+                self._release_virtual_display()
                 return False
 
         self._error_count = 0
@@ -632,6 +649,16 @@ class ScreenCaster:
         log.info("Test pattern '%s' casting to %s:%d", pattern, target.host, target.port)
         return True
 
+    def _release_virtual_display(self) -> None:
+        vd = getattr(self, "_virtual_display", None)
+        self._virtual_display = None
+        self._capture_region = None
+        if vd is not None:
+            try:
+                vd.stop()
+            except Exception as e:
+                log.warning("Failed to remove virtual monitor: %s", e)
+
     def stop(self) -> None:
         """Stop the pipeline and free resources."""
         if not self._is_casting:
@@ -652,6 +679,7 @@ class ScreenCaster:
 
         # Close the portal session to release the PipeWire capture
         _close_portal_session()
+        self._release_virtual_display()
 
         self._target = None
         self._active_pattern = None
@@ -672,6 +700,13 @@ class ScreenCaster:
             registry = Gst.Registry.get()
             if registry.lookup_feature("ximagesrc") and os.environ.get("DISPLAY"):
                 video_src = "ximagesrc use-damage=false show-pointer=true"
+                region = getattr(self, "_capture_region", None)
+                if region is not None:
+                    video_src += (
+                        f" startx={region.x} starty={region.y}"
+                        f" endx={region.x + region.width - 1}"
+                        f" endy={region.y + region.height - 1}"
+                    )
                 log.info("Using X11 ximagesrc fallback for screen capture")
             else:
                 video_src = "videotestsrc pattern=smpte is-live=true"
