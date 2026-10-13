@@ -9,6 +9,7 @@ Homepage: https://github.com/John-Varghese-EH/Linux-iProjection
 Package: linux-iprojection
 Architecture: all
 Depends: ${python3:Depends}, ${misc:Depends}, python3-gi, python3-zeroconf, gir1.2-gtk-4.0, gir1.2-adw-1
+Recommends: libevdi1, evdi-dkms
 Description: Native Linux control & casting app for Epson projectors
  The ultimate, enterprise-grade controller for your Epson projectors.
  Take complete command over network and mDNS projection. Features advanced diagnostic tools,

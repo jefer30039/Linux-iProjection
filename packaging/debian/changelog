@@ -1,3 +1,10 @@
+linux-iprojection (1.4.0-1+x11.2) unstable; urgency=medium
+
+  * Extend mode on X11: create a virtual monitor with evdi and capture
+    only that region.
+
+ -- Jeferson Marin <jeferson@synappsis.ai>  Tue, 13 Oct 2026 16:40:00 -0600
+
 linux-iprojection (1.4.0-1+x11.1) unstable; urgency=medium
 
   * Native X11 screen capture (ximagesrc) when the session is X11.
