@@ -1,3 +1,10 @@
+linux-iprojection (1.4.0-1+x11.1) unstable; urgency=medium
+
+  * Native X11 screen capture (ximagesrc) when the session is X11.
+  * X11 path captures desktop audio from the PulseAudio monitor.
+
+ -- Jeferson Marin <jeferson@synappsis.ai>  Tue, 13 Oct 2026 14:15:00 -0600
+
 linux-iprojection (1.4.0-1) unstable; urgency=medium
 
   * Bug fixes for log_writer TypeError on some PyGObject versions.
